@@ -388,10 +388,6 @@ class MultiScaleDownMixing(nn.Module):
 
 
 class MultiScaleConvBlock(nn.Module):
-    """
-    多尺度 1D 下采样块，使用 SoftmaxFusion 融合多个卷积分支输出。
-    """
-
     def __init__(self, channels: int, kernel_sizes: list, stride: int):
         super().__init__()
         self.branches = nn.ModuleList([
@@ -406,11 +402,6 @@ class MultiScaleConvBlock(nn.Module):
 
 
 class MultiScaleUpConvBlock(nn.Module):
-    """
-    多尺度 1D 上采样块：使用多个不同 kernel_size 的 ConvTranspose1d，
-    并通过 Softmax 加权融合多个分支的上采样结果。
-    """
-
     def __init__(self, channels: int, kernel_sizes: list, stride: int):
         super().__init__()
         self.branches = nn.ModuleList([
@@ -437,9 +428,7 @@ class XGateFusion(nn.Module):
                  alpha: float = 0.6,
                  attn_drop: float = 0.0,
                  proj_drop: float = 0.0):
-        """
-        Cross-Diffusion Attention + Dynamic Gated Fusion with FFT Hadamard product.
-        """
+
         super().__init__()
         self.dim = dim
         self.output_dim = output_dim
@@ -470,12 +459,6 @@ class XGateFusion(nn.Module):
                          if dim != output_dim else nn.Identity())
 
     def forward(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x1, x2: [B, T, C] or [T, C]
-        Returns:
-            Fused output [B, T, output_dim]
-        """
         squeeze = False
         if x1.dim() == 2:
             x1 = x1.unsqueeze(0)
@@ -661,12 +644,12 @@ class TwoWayFusionSelector(nn.Module):
 
     def forward(self, out1, out2):
         pooled = (out1 + out2) / 2
-        pooled = pooled.mean(dim=1)  # [B, D]
-        scores = self.selector(pooled)  # [B, 2]
-        weights = F.softmax(scores, dim=-1)  # [B, 2]
+        pooled = pooled.mean(dim=1)
+        scores = self.selector(pooled)
+        weights = F.softmax(scores, dim=-1)
 
-        avg_weights = weights.mean(dim=0)  # [2]
-        selected_idx = torch.argmax(avg_weights)  # 0: sum, 1: softmax
+        avg_weights = weights.mean(dim=0)
+        selected_idx = torch.argmax(avg_weights)
 
         if selected_idx == 0:
             return out1

@@ -36,9 +36,9 @@ class SelfAttention(nn.Module):
 
     def forward(self, x):
         # x: [batch_size, seq_len, embed_dim]
-        x = x.permute(1, 0, 2)  # 调整为 [seq_len, batch_size, embed_dim]
-        attn_output, _ = self.multihead_attn(x, x, x)  # 自注意力
-        attn_output = attn_output.permute(1, 0, 2)  # 恢复为 [batch_size, seq_len, embed_dim]
+        x = x.permute(1, 0, 2)  #  [seq_len, batch_size, embed_dim]
+        attn_output, _ = self.multihead_attn(x, x, x)
+        attn_output = attn_output.permute(1, 0, 2)
         return attn_output
 
 
@@ -54,14 +54,14 @@ class GATLayer(nn.Module):
     def forward(self, h, adj):
         # h: [batch_size, num_nodes, in_features]
         # adj: [batch_size, num_nodes, num_nodes]
-        Wh = self.W(h)  # 线性变换
+        Wh = self.W(h)
         a_input = self._prepare_attention_input(Wh)
-        e = self.leakyrelu(self.a(a_input).squeeze(-1))  # 计算注意力系数
+        e = self.leakyrelu(self.a(a_input).squeeze(-1))
         zero_vec = -9e15 * torch.ones_like(e)
-        attention = torch.where(adj > 0, e, zero_vec)  # 掩码处理
-        attention = F.softmax(attention, dim=-1)  # 归一化
+        attention = torch.where(adj > 0, e, zero_vec)
+        attention = F.softmax(attention, dim=-1)
         attention = F.dropout(attention, self.dropout, training=self.training)
-        h_prime = torch.matmul(attention, Wh)  # 加权求和
+        h_prime = torch.matmul(attention, Wh)
         return F.elu(h_prime)
 
     def _prepare_attention_input(self, Wh):
@@ -86,72 +86,24 @@ class GAT(nn.Module):
         # x: [batch_size, num_nodes, nfeat]
         # adj: [batch_size, num_nodes, num_nodes]
         x = F.dropout(x, self.dropout, training=self.training)
-        x = torch.cat([att(x, adj) for att in self.attentions], dim=-1)  # 多头注意力
+        x = torch.cat([att(x, adj) for att in self.attentions], dim=-1)
         x = F.dropout(x, self.dropout, training=self.training)
-        x = self.out_att(x, adj)  # 输出层
+        x = self.out_att(x, adj)
         return F.log_softmax(x, dim=-1)
 
 
 class TokenEmbedding(nn.Module):
-    '''
-    def __init__(self, c_in, d_model):
-        super(TokenEmbedding, self).__init__()
-        padding = 1 if torch.__version__ >= '1.5.0' else 2
-        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model,
-                                   kernel_size=3, padding=padding, padding_mode='circular', bias=False)
-        for m in self.modules():
-            if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_in', nonlinearity='leaky_relu')
-
-    def forward(self, x):
-        x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
-        return x
-
-    '''
-
-    '''
-    #简单加一个attention
-    def __init__(self, c_in, d_model, num_heads=4):
-        super(TokenEmbedding, self).__init__()
-        padding = 1 if torch.__version__ >= '1.5.0' else 2
-        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model,
-                                   kernel_size=3, padding=padding, padding_mode='circular', bias=False)
-        for m in self.modules():
-            if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_in', nonlinearity='leaky_relu')
-        self.attention = SelfAttention(d_model, num_heads)
-        # 初始化权重
-        for m in self.modules():
-            if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_in', nonlinearity='leaky_relu')
-
-    def forward(self, x):
-        x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
-        x = self.attention(x)  # 自注意力机制 -> [batch_size, height * width, d_model]
-        x = x.mean(dim=1)  # 对 height * width 维度取均值 -> [batch_size, d_model]
-        x = x.unsqueeze(1)  # 添加 c_in 维度 -> [batch_size, 1, d_model]
-        return x
-    '''
-
     def __init__(self, c_in, d_model, num_heads=4):
         super(TokenEmbedding, self).__init__()
         self.gat = GAT(c_in, d_model, d_model, dropout=0.1, alpha=0.2, nheads=num_heads)
 
     def forward(self, x):
-        # x 的形状：[batch_size, seq_len, feature_dim]
-        # 假设输入是时间序列数据，将每个时间步视为图中的一个节点
         batch_size, seq_len, feature_dim = x.size()
 
-        # 创建邻接矩阵（假设所有节点都相互连接）
         adj = torch.ones(batch_size, seq_len, seq_len).to(x.device)  # [batch_size, seq_len, seq_len]
 
-        # 通过 GAT 提取特征
         x = self.gat(x, adj)  # [batch_size, seq_len, d_model]
 
-        # 对时间步维度取均值
         x = x.mean(dim=1)  # [batch_size, d_model]
         x = x.unsqueeze(1)  # [batch_size, 1, d_model]
         return x
@@ -160,27 +112,7 @@ class TokenEmbedding(nn.Module):
 class TokenEmbeddingSeries(nn.Module):
     def __init__(self, c_in, d_model, hidden_dim=64, num_layers=3, dropout=0.1):
         super(TokenEmbeddingSeries, self).__init__()
-        '''
-        padding = 1 if torch.__version__ >= '1.5.0' else 2
-        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model,
-                                   kernel_size=3, padding=padding, padding_mode='circular', bias=False)
-        for m in self.modules():
-            if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(
-                    m.weight, mode='fan_in', nonlinearity='leaky_relu')
-        '''
-        '''
-        # 定义 MLP 结构
-        self.mlp = nn.Sequential(
-            nn.Linear(c_in, 10),  # 第一层：输入维度 c_in，输出维度 hidden_dim
-            nn.ReLU(),                    # 激活函数
-            nn.Linear(10, d_model)  # 第二层：输入维度 hidden_dim，输出维度 d_model
-        )
-        # 初始化权重
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
-        '''
+
         layers = []
         for i in range(num_layers):
             in_dim = c_in if i == 0 else hidden_dim
@@ -190,14 +122,13 @@ class TokenEmbeddingSeries(nn.Module):
                 layers.append(nn.ReLU())
                 layers.append(nn.Dropout(dropout))
         self.mlp = nn.Sequential(*layers)
-        # 初始化权重
+
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
 
     def forward(self, x):
-        #x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
-        x = self.mlp(x)  # 通过 MLP 映射到 [batch_size, seq_len, d_model]
+        x = self.mlp(x)
         return x
 
 
